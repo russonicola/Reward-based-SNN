@@ -26,7 +26,7 @@ JSON_PATH = 'trajectories/splits/split_164/train.jsonl'
 
 NUM_SAMPLES = 64
 
-output_folder = "trajectories/out"
+output_folder = "out"
 #output_folder = "out"
 os.makedirs(output_folder, exist_ok=True)
 
