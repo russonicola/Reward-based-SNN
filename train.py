@@ -16,7 +16,7 @@ device = torch.device("mps" if torch.backends.mps.is_available() else
 print(f"Using device: {device}")
 
 EXPERIMENT = 'origin_64' # 'split_64'
-PHASE = 'phase_2'
+PHASE = 'phase_1'
 SEED = 42
 JSON_PATH = 'trajectories/splits/split_64/train.jsonl'
 JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
@@ -38,7 +38,7 @@ workdir = f'{workdir_exp}/{PHASE}'
 os.makedirs(workdir, exist_ok=True)
 
 
-checkpoint_phase1_dir = get_last_valid_checkpoint(f'{workdir_exp}/phase_1', delete_corrupted=True)
+#checkpoint_phase1_dir = get_last_valid_checkpoint(f'{workdir_exp}/phase_1', delete_corrupted=True)
 checkpoint_dir = get_last_valid_checkpoint(f'{workdir}', delete_corrupted=True)
 last_checkpoint = 0
 
@@ -69,7 +69,7 @@ def set_checkpoint_dir(workdir, epoch):
 
 
 
-num_epochs = 5
+num_epochs = 10
 repead_once = 1
 batch_size = 1  # Number of samples per batch
 
@@ -95,14 +95,14 @@ n_steps_tot = (dataset_total_steps + (num_samples * pause_steps))
 
 
 
-model = RewardBasedModel(device=device)
+model = RewardBasedModel(hidden_neurons=100, device=device)
 
 # Insert a condition
 
 # Load trained weights layer 1
-checkpoint_p1 = torch.load(f'{checkpoint_phase1_dir}/epoch.chk')
-model.hidden_layer.weights.data = checkpoint_p1['weights_hidden']
-model.hidden_layer.adaptive_threshold = checkpoint_p1['thresholds_hidden']
+#checkpoint_p1 = torch.load(f'{checkpoint_phase1_dir}/epoch.chk')
+#model.hidden_layer.weights.data = checkpoint_p1['weights_hidden']
+#model.hidden_layer.adaptive_threshold = checkpoint_p1['thresholds_hidden']
 
 
 # Load trained weights layer 2
