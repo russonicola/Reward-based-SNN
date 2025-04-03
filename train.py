@@ -38,7 +38,7 @@ workdir = f'{workdir_exp}/{PHASE}'
 os.makedirs(workdir, exist_ok=True)
 
 
-checkpoint_phase1_dir = get_last_valid_checkpoint(f'{workdir_exp}', delete_corrupted=True)
+checkpoint_phase1_dir = get_last_valid_checkpoint(f'{workdir_exp}/phase_1', delete_corrupted=True)
 checkpoint_dir = get_last_valid_checkpoint(f'{workdir}', delete_corrupted=True)
 last_checkpoint = 0
 
