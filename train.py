@@ -43,9 +43,9 @@ last_checkpoint = 0
 
 
 # Ottieni la data e ora corrente
-if workdir is None:
-    workdir = f"{output_folder}/workdir_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
-    os.makedirs(workdir, exist_ok=True)
+#if workdir is None:
+#    workdir = f"{output_folder}/workdir_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+#    os.makedirs(workdir, exist_ok=True)
 
 
 def set_checkpoint_dir(workdir, epoch):
