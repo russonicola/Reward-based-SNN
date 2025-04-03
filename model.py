@@ -545,7 +545,7 @@ class RewardBasedModel(nn.Module):
         self.shift_stdp = STDP_ET(self.output_layer)
         
         self.configuration_type = None
-        self.enable_hidden_learning = True
+        self.enable_hidden_learning = False
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
