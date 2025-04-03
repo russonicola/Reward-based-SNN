@@ -16,7 +16,7 @@ device = torch.device("mps" if torch.backends.mps.is_available() else
 print(f"Using device: {device}")
 
 EXPERIMENT = 'origin_64' # 'split_64'
-PHASE = 'phase_all'
+PHASE = 'phase_2'
 SEED = 42
 JSON_PATH = 'trajectories/splits/split_64/train.jsonl'
 JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
@@ -38,6 +38,7 @@ workdir = f'{workdir_exp}/{PHASE}'
 os.makedirs(workdir, exist_ok=True)
 
 
+checkpoint_phase1_dir = get_last_valid_checkpoint(f'{workdir_exp}', delete_corrupted=True)
 checkpoint_dir = get_last_valid_checkpoint(f'{workdir}', delete_corrupted=True)
 last_checkpoint = 0
 
@@ -99,9 +100,9 @@ model = RewardBasedModel(device=device)
 # Insert a condition
 
 # Load trained weights layer 1
-#checkpoint = torch.load(f'{checkpoint_dir}/epoch.chk')
-#model.hidden_layer.weights.data = checkpoint['weights_hidden']
-#model.hidden_layer.adaptive_threshold = checkpoint['thresholds_hidden']
+checkpoint_p1 = torch.load(f'{checkpoint_phase1_dir}/epoch.chk')
+model.hidden_layer.weights.data = checkpoint_p1['weights_hidden']
+model.hidden_layer.adaptive_threshold = checkpoint_p1['thresholds_hidden']
 
 
 # Load trained weights layer 2
