@@ -75,7 +75,7 @@ batch_size = 1  # Number of samples per batch
 
 # Parametri Modello
 n_input = 64
-n_hidden = 400
+n_hidden = 100
 n_output = 5
 n_reward = 1
 
@@ -95,7 +95,7 @@ n_steps_tot = (dataset_total_steps + (num_samples * pause_steps))
 
 
 
-model = RewardBasedModel(hidden_neurons=100, device=device)
+model = RewardBasedModel(hidden_neurons=n_hidden, device=device)
 
 # Insert a condition
 
