@@ -15,7 +15,7 @@ device = torch.device("mps" if torch.backends.mps.is_available() else
 
 print(f"Using device: {device}")
 
-EXPERIMENT = 'origin_64' # 'split_64'
+EXPERIMENT = 'origin_64_100' # 'split_64'
 PHASE = 'phase_1'
 SEED = 42
 JSON_PATH = 'trajectories/splits/split_64/train.jsonl'
