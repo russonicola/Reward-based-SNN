@@ -18,11 +18,8 @@ print(f"Using device: {device}")
 EXPERIMENT = 'origin_64_100' # 'split_64'
 PHASE = 'phase_1'
 SEED = 42
-JSON_PATH = 'trajectories/splits/split_64/train.jsonl'
-JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
 
-#JSON_PATH = 'in/splits/split_164/train.jsonl'
-JSON_PATH = 'trajectories/splits/split_164/train.jsonl'
+JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
 
 NUM_SAMPLES = 64
 
