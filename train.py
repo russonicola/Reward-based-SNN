@@ -15,18 +15,18 @@ device = torch.device("mps" if torch.backends.mps.is_available() else
 
 print(f"Using device: {device}")
 
-EXPERIMENT = 'split_164' # 'split_64'
+EXPERIMENT = 'origin_64' # 'split_64'
 PHASE = 'phase_all'
 SEED = 42
-JSON_PATH = 'exp_py/model_v2/in/splits/split_64/train.jsonl'
-JSON_PATH = 'exp_py/model_v2/in/origin/64_trajectories.jsonl'
+JSON_PATH = 'trajectories/splits/split_64/train.jsonl'
+JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
 
 #JSON_PATH = 'in/splits/split_164/train.jsonl'
-JSON_PATH = 'exp_py/model_v2/in/splits/split_164/train.jsonl'
+JSON_PATH = 'trajectories/splits/split_164/train.jsonl'
 
-NUM_SAMPLES = 123
+NUM_SAMPLES = 64
 
-output_folder = "exp_py/model_v2/out"
+output_folder = "trajectories/out"
 #output_folder = "out"
 os.makedirs(output_folder, exist_ok=True)
 
