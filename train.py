@@ -20,6 +20,7 @@ PHASE = 'phase_1'
 SEED = 42
 
 JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
+JSON_PATH = 'trajectories/origin/64_trajectories.jsonl'
 
 NUM_SAMPLES = 64
 
@@ -77,22 +78,23 @@ n_output = 5
 n_reward = 1
 
 # hidden weights plotting
-nrows, ncols = [20, 20]
+#nrows, ncols = [20, 20]
+nrows, ncols = [10, 10]
 
 min_spikes = 5
 
-
+dt = 4
 
 # Definizione della pausa (in ms) tra i campioni
 pause_steps = 2000  # 2000 ms di pausa
 
-dataloader, dataset_info = prepare(JSON_PATH, SEED, batch_size=batch_size, shuffle=False) # was shuffle=False
+dataloader, dataset_info = prepare(JSON_PATH, SEED, batch_size=batch_size, integration_window=dt, shuffle=False) # was shuffle=False
 dataset_total_steps, num_samples = dataset_info
 n_steps_tot = (dataset_total_steps + (num_samples * pause_steps))
 
 
 
-model = RewardBasedModel(hidden_neurons=n_hidden, device=device)
+model = RewardBasedModel(hidden_neurons=n_hidden, dt=dt, device=device)
 
 # Insert a condition
 

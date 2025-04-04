@@ -492,6 +492,7 @@ class RewardBasedModel(nn.Module):
                  hidden_neurons=400, 
                  output_neurons=5, 
                  reward_neurons=1, 
+                 dt=1.0,
                  device=None):
         super().__init__()
         
@@ -500,14 +501,17 @@ class RewardBasedModel(nn.Module):
                             "cuda" if torch.cuda.is_available() else 
                             "cpu") if device is None else device
         
+    
         self.input_layer = InputLayer(input_neurons,
-                                    0.99, 0.85, 0.5,
+                                    0.99 ** dt, 
+                                    0.85 ** dt, 
+                                    0.5 ** dt,
                                     refractory_period_in=15,
                                     device=device).to(device)
         
         self.hidden_layer = HiddenLayer(input_neurons,
                                     hidden_neurons,
-                                    0.8,
+                                    0.8 ** dt,
                                     threshold_max = 20,
                                     adaptive_threshold_on=True,
                                     inhibition=True, 
@@ -519,7 +523,7 @@ class RewardBasedModel(nn.Module):
         self.output_layer = OutputLayer(hidden_neurons,
                                         output_neurons,
                                         reward_neurons,
-                                        0.7,
+                                        0.7 ** dt,
                                         threshold_out=0.5,
                                         threshold_min=0.5, 
                                         threshold_max=20.0,

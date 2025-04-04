@@ -11,12 +11,27 @@ import torch
 from torch.utils.data import Dataset
 
 class SNNDataset(Dataset):
-    def __init__(self, data_list):
-        # Manteniamo ogni sequenza con la sua lunghezza originale
-        self.inputs = [torch.tensor(d["rows"], dtype=torch.float32) for d in data_list]
-        self.targets = [torch.tensor(d["position"], dtype=torch.float32) for d in data_list]
-        
-        
+    def __init__(self, data_list, integration_window=1):
+        self.integration_window = integration_window
+        self.inputs = []
+        self.targets = []
+
+        for d in data_list:
+            input_seq = torch.tensor(d["rows"], dtype=torch.float32)  # shape: [T, N]
+            target = torch.tensor(d["position"], dtype=torch.float32)
+
+            # Raggruppa ogni 4 timestep usando "any-spike"
+            T, N = input_seq.shape
+            T_pad = (self.integration_window - T % self.integration_window) % self.integration_window
+            if T_pad > 0:
+                pad = torch.zeros((T_pad, N), dtype=torch.float32)
+                input_seq = torch.cat([input_seq, pad], dim=0)
+
+            input_seq = input_seq.view(-1, self.integration_window, N)
+            compressed = (input_seq.sum(dim=1) > 0).float()  # shape: [T//4, N]
+
+            self.inputs.append(compressed)
+            self.targets.append(target)
 
     def __len__(self):
         return len(self.inputs)
@@ -25,10 +40,8 @@ class SNNDataset(Dataset):
         return self.inputs[idx], self.targets[idx]
 
     def get_dataset_info(self):
-        """Restituisce il numero totale di step e il numero di campioni nel dataset."""
         total_steps = sum(len(seq) for seq in self.inputs)
-        num_samples = len(self.inputs)
-        return [total_steps, num_samples]
+        return [total_steps, len(self.inputs)]
     
     
 # Funzione per inizializzare il seed nei worker
@@ -43,7 +56,7 @@ def collate_fn(batch):
 
     
    
-def prepare(json_path, seed=42, batch_size=1, shuffle=False):
+def prepare(json_path, seed=42, batch_size=1, integration_window=1, shuffle=False):
     # Read JSONL file
     with open(json_path, "r") as f:
         data_list = [json.loads(line) for line in f]
@@ -57,7 +70,7 @@ def prepare(json_path, seed=42, batch_size=1, shuffle=False):
             d['position'] = bisect.bisect_right(limits, d['position']) - 1
  
     # Creiamo dataset e DataLoader con seed nei worker
-    dataset = SNNDataset(data_list)
+    dataset = SNNDataset(data_list, integration_window=integration_window)
     g = torch.Generator()
     g.manual_seed(seed)
 
