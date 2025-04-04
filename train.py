@@ -83,7 +83,7 @@ nrows, ncols = [10, 10]
 
 min_spikes = 5
 
-dt = 2
+dt = 4
 
 # Definizione della pausa (in ms) tra i campioni
 pause_steps = int(2000 / dt)  # 2000 ms di pausa
