@@ -83,10 +83,10 @@ nrows, ncols = [10, 10]
 
 min_spikes = 5
 
-dt = 4
+dt = 2
 
 # Definizione della pausa (in ms) tra i campioni
-pause_steps = 2000  # 2000 ms di pausa
+pause_steps = int(2000 / dt)  # 2000 ms di pausa
 
 dataloader, dataset_info = prepare(JSON_PATH, SEED, batch_size=batch_size, integration_window=dt, shuffle=False) # was shuffle=False
 dataset_total_steps, num_samples = dataset_info
@@ -331,7 +331,7 @@ for epoch in range(last_checkpoint if last_checkpoint > 0 else 0, num_epochs):
   
               
                 
-    #save_weights_grid(layer_1.weights.detach().cpu().numpy(), nrows=nrows, ncols=ncols, filename=f"{weights_l1_folder}/weights_{step}", figsize=(12, 12))
+    save_weights_grid(model.hidden_layer.weights.detach().cpu().numpy(), nrows=nrows, ncols=ncols, filename=f"{weights_l1_folder}/weights_{step}", figsize=(12, 12))
     save_weights_heatmap(model.output_layer.weights.detach().cpu().numpy(), filename=f"{weights_l2_folder}/weights_{step}", figsize=(20, 2))
             
     # Save weights and thresholds

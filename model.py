@@ -601,7 +601,7 @@ class RewardBasedModel(nn.Module):
         self.hidden_layer.adaptive_threshold_on = False
         self.output_layer.adaptive_threshold_on = False
         
-        self.enable_hidden_learning = False
+        self.enable_hidden_learning = True
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
