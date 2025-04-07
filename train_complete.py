@@ -1,4 +1,5 @@
 import os, shutil
+import argparse
 import time
 import torch
 from datetime import datetime
@@ -45,6 +46,12 @@ print(f"Using device: {device}")
 # ---------------------------------------------------------
 
 
+# Crea il parser
+parser = argparse.ArgumentParser(description="")
+parser.add_argument("--dt", type=int, help="Integration timestep in ms", required=False, default=1)
+parser.add_argument("--batch", type=int, help="Batch size", required=False, default=1)
+args = parser.parse_args()
+
 EXPERIMENT = 'kfold_5_164' # 'split_64'
 FOLDS = 1
 PHASES = ['train_p1', 'train_p2', 'test']
@@ -54,7 +61,7 @@ SEED = 42
 
 num_epochs = 10
 repead_once = 1
-batch_size = 1  # Number of samples per batch
+batch_size = args.batch  # Number of samples per batch
 
 # Parametri Modello
 n_input = 64
@@ -68,7 +75,7 @@ nrows, ncols = [20, 20]
 
 min_spikes = 5
 
-dt = 1 # was 4
+dt = args.dt # was 4
 
 # Definizione della pausa (in ms) tra i campioni
 pause_steps = int(2000 / dt)  # 2000 ms di pausa
@@ -109,7 +116,7 @@ def simulation(model,
                save_weights_steps=60000, 
                t_step = 1, 
                save_weights_history_steps=0,
-               save_delays = True,
+               enable_save_delays = True,
                save_plots = True,
                trajectory_bar = None,
                sample_bar = None,
@@ -324,7 +331,7 @@ def simulation(model,
         torch.save(torch.stack(reward_history), f"{monitors_folder}/reward_history.mon")
         torch.save([(x, y[0].item()) for (x, y) in trajectory_history], f"{monitors_folder}/trajectory_history.mon")
         
-    if save_delays:
+    if enable_save_delays:
         save_delays(delays, f"{checkpoints_folder}/delays", t_step, figsize=(12, 12))
         
     if save_weights_history_steps:
