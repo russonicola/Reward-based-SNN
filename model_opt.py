@@ -557,7 +557,8 @@ class RewardBasedModel(nn.Module):
         self.configuration_type = 'train_unsupervised'
         self.enable_hidden_learning = True
         self.hidden_layer.adaptive_threshold_on = True
-        self.enable_output_layer = False
+        self.output_layer.adaptive_threshold_on = False
+        self.enable_output_layer = True # was False
         self.enable_output_learning = False
         self.enable_reward = False
 
@@ -565,6 +566,7 @@ class RewardBasedModel(nn.Module):
         self.configuration_type = 'test_unsupervised'
         self.enable_hidden_learning = False
         self.hidden_layer.adaptive_threshold_on = False
+        self.output_layer.adaptive_threshold_on = False
         self.enable_output_layer = False
         self.enable_output_learning = False
         self.enable_reward = False
@@ -583,9 +585,10 @@ class RewardBasedModel(nn.Module):
         self.hidden_layer.adaptive_threshold_on = False
         self.output_layer.adaptive_threshold_on = False
         self.enable_hidden_learning = False
-        self.enable_output_layer = False
+        self.enable_output_layer = True
         self.enable_output_learning = False
-        self.enable_reward = False
+        self.enable_reward = True
+    
 
     def online(self):
         self.configuration_type = 'online'
@@ -602,6 +605,10 @@ class RewardBasedModel(nn.Module):
         output_layer_return = None
 
         with torch.no_grad():
+            
+            if spikes.shape[0] > 1:
+                spikes = spikes.sum(dim=0, keepdim=True)
+            
             input_layer_return = self.input_layer(spikes)
             spikes_input = input_layer_return[1].detach()
 
@@ -625,10 +632,7 @@ class RewardBasedModel(nn.Module):
         return input_layer_return, hidden_layer_return, output_layer_return
 
 
-# ✅ Suggerimenti aggiuntivi (da applicare anche alle classi STDP e STDP_ET):
-# - precomputare decay come: self.decay_pre1 = torch.exp(torch.tensor(-dt / tau_pre1))
-# - usare spike.detach() prima degli update
-# - limitare la crescita di pre_spike_buffer con controlli su shift
+
 
         
         
