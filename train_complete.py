@@ -53,13 +53,13 @@ parser.add_argument("--batch", type=int, help="Batch size", required=False, defa
 args = parser.parse_args()
 
 EXPERIMENT = 'kfold_5_164' # 'split_64'
-FOLDS = 1
+FOLDS = 5
 PHASES = ['train_p1', 'train_p2', 'test']
 NUM_EPOCHS = [10, 5, 1]
 SEED = 42
 
 
-num_epochs = 10
+num_epochs = NUM_EPOCHS[0]
 repead_once = 1
 batch_size = args.batch  # Number of samples per batch
 
@@ -113,7 +113,7 @@ def simulation(model,
                dataloader, 
                folders,
                max_repeat=-1, 
-               save_weights_steps=60000, 
+               save_weights=True, 
                t_step = 1, 
                save_weights_history_steps=0,
                enable_save_delays = True,
@@ -147,9 +147,9 @@ def simulation(model,
     step = 0
     trajectory_id = -1
     
-    if save_weights_steps > 0:
-        save_weights_grid(model.hidden_layer.weights.detach().cpu().numpy(), nrows=nrows, ncols=ncols, filename=f"{weights_l1_folder}/weights_0", figsize=(12, 12))
-        save_weights_heatmap(model.output_layer.weights.detach().cpu().numpy(), filename=f"{weights_l2_folder}/weights_0", figsize=(20, 2))
+    if save_weights:
+        save_weights_grid(model.hidden_layer.weights.detach().cpu().numpy(), nrows=nrows, ncols=ncols, filename=f"{weights_l1_folder}/weights_0_0", figsize=(12, 12))
+        save_weights_heatmap(model.output_layer.weights.detach().cpu().numpy(), filename=f"{weights_l2_folder}/weights_0_0", figsize=(20, 2))
         
     
     for inputs_batch, targets_batch in dataloader:
@@ -219,25 +219,9 @@ def simulation(model,
                     out_voltage_history.append(mem_output_layer.detach())
                     out_synaptic_current_history.append(Iw_in_out.detach())
                     
-                
-                    
-                # Salvataggio dei pesi se richiesto
-                if save_weights_steps > 0 and step % save_weights_steps == 0:
-                    save_weights_grid(
-                        model.hidden_layer.weights.detach().cpu().numpy(),
-                        nrows=nrows, ncols=ncols,
-                        filename=f"{weights_l1_folder}/weights_{step}", 
-                        figsize=(12, 12)
-                    )
-                    save_weights_heatmap(
-                        model.output_layer.weights.detach().cpu().numpy(),
-                        filename=f"{weights_l2_folder}/weights_{step}", 
-                        figsize=(20, 2)
-                    )
-                    
                     
                 if save_weights_history_steps > 0 and step % save_weights_history_steps == 0:
-                    output_weights_history.append(model.output_layer.weights.detach().cpu().numpy())
+                    output_weights_history.append(model.output_layer.weights.detach())
                     
                 
                 step += 1  # Avanza lo step temporale
@@ -276,27 +260,27 @@ def simulation(model,
                     out_synaptic_current_history.append(Iw_in_out.detach())
                 
                     
-                # Salvataggio dei pesi se richiesto
-                if save_weights_steps > 0 and step % save_weights_steps == 0:
-                    save_weights_grid(
-                        model.hidden_layer.weights.detach().cpu().numpy(),
-                        nrows=nrows, ncols=ncols,
-                        filename=f"{weights_l1_folder}/weights_{step}", 
-                        figsize=(12, 12)
-                    )
-                    save_weights_heatmap(
-                        model.output_layer.weights.detach().cpu().numpy(),
-                        filename=f"{weights_l2_folder}/weights_{step}", 
-                        figsize=(20, 2)
-                    )
-                    
                 
                 if save_weights_history_steps > 0 and step % save_weights_history_steps == 0:
-                    output_weights_history.append(model.output_layer.weights.detach().cpu().numpy())
+                    output_weights_history.append(model.output_layer.weights.detach())
                 
                 
                 step += 1  # Avanza lo step temporale
                 sample_bar.update(1)  # Aumenta di 1 per ogni campione completato
+                
+            # Salvataggio dei pesi se richiesto
+            if save_weights:
+                save_weights_grid(
+                    model.hidden_layer.weights.detach().cpu().numpy(),
+                    nrows=nrows, ncols=ncols,
+                    filename=f"{weights_l1_folder}/weights_{input_id}_{step}", 
+                    figsize=(12, 12)
+                )
+                save_weights_heatmap(
+                    model.output_layer.weights.detach().cpu().numpy(),
+                    filename=f"{weights_l2_folder}/weights_{input_id}_{step}", 
+                    figsize=(20, 2)
+                )
                 
             # Check num out spike
             if repeat > max_repeat or (torch.all(sum_out_spikes > 0) and torch.all(sum_out_spikes < 20)):
@@ -309,12 +293,7 @@ def simulation(model,
             spike_out_trajectory.append(sum_out_spikes.clone())
             
             repeat += 1
-                
                         
-    if save_weights_steps > 0:
-        save_weights_grid(model.hidden_layer.weights.detach().cpu().numpy(), nrows=nrows, ncols=ncols, filename=f"{weights_l1_folder}/weights_{step}", figsize=(12, 12))
-        save_weights_heatmap(model.output_layer.weights.detach().cpu().numpy(), filename=f"{weights_l2_folder}/weights_{step}", figsize=(20, 2))
-                
 
     if save_plots:
         print('save monitors')
@@ -341,7 +320,7 @@ def simulation(model,
     
     if compute_accuracy:
         totals = len(trajectory_history)
-        out_of_target = sum(1 for _, y in trajectory_history if y < 0 or y > 4)
+        out_of_target = sum(1 for _, y in [(x, y[0].item()) for (x, y) in trajectory_history] if y < 0 or y > 4)
         guessed = sum((t == 1).sum().item() for t in reward_history)
         accuracy = guessed / (totals-out_of_target)
         metrics= {
@@ -396,10 +375,10 @@ for fold in range(FOLDS):
 
 
 
-    train_dataloader, train_dataset_info = prepare(JSON_PATH_TRAIN, SEED, batch_size=dt, integration_window=1, shuffle=False)
+    train_dataloader, train_dataset_info = prepare(JSON_PATH_TRAIN, SEED, batch_size=batch_size, integration_window=dt, shuffle=False)
     _, train_num_samples = train_dataset_info
 
-    test_dataloader, test_dataset_info = prepare(JSON_PATH_TEST, SEED, batch_size=dt, integration_window=1, shuffle=False)
+    test_dataloader, test_dataset_info = prepare(JSON_PATH_TEST, SEED, batch_size=batch_size, integration_window=dt, shuffle=False)
     _, test_num_samples = test_dataset_info
 
 
@@ -446,7 +425,7 @@ for fold in range(FOLDS):
         # Training loop - checkpoints
         for epoch in range(last_checkpoint if last_checkpoint > 0 else 0, num_epochs):
 
-            trajectory_bar.total = train_num_samples if epoch != 'test' else test_num_samples
+            trajectory_bar.total = train_num_samples if phase != 'test' else test_num_samples
             trajectory_bar.refresh()
             trajectory_bar.reset()
             

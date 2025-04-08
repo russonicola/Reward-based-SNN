@@ -143,9 +143,10 @@ class HiddenLayer(nn.Module):
 
         # Output neurons
         self.lif_out = snn.Leaky(beta=beta, threshold=threshold_out, reset_mechanism=reset_out, inhibition=inhibition).to(self.device)
-
+        
         # Adaptive threshold
         self.adaptive_threshold = threshold_out * torch.ones(output_neurons, device=self.device)
+        self.register_buffer('lif_threshold_buffer', self.adaptive_threshold.clone().detach())
 
         # Inhibition strength
         self.inhibition_strength = inhibition_strength 
@@ -156,7 +157,9 @@ class HiddenLayer(nn.Module):
         Iw_in = torch.matmul(spikes, self.weights.T)
         
         # **Aggiorna dinamicamente la soglia di Leaky**
-        self.lif_out.register_buffer('threshold', self.adaptive_threshold.clone().detach())
+        #self.lif_out.register_buffer('threshold', self.adaptive_threshold.clone().detach())
+        self.lif_threshold_buffer.copy_(self.adaptive_threshold)
+        self.lif_out.threshold = self.lif_threshold_buffer
 
         # Output Layer
         spk_out, mem_out = self.lif_out(Iw_in)
