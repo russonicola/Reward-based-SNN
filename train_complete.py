@@ -53,9 +53,15 @@ parser.add_argument("--batch", type=int, help="Batch size", required=False, defa
 args = parser.parse_args()
 
 EXPERIMENT = 'kfold_5_164' # 'split_64'
+EXPERIMENT = 'split_64'
 FOLDS = 5
-PHASES = ['train_p1', 'train_p2', 'test']
-NUM_EPOCHS = [10, 5, 1]
+PHASES = ['p1_train_unsupervised','p2_tuning','p3_training_reward', 'p4_test']
+NUM_EPOCHS = [10, 1, 5, 1]
+
+FOLDS = 1
+PHASES = ['p1_train_unsupervised_2', 'p3_training_reward', 'p4_test']
+NUM_EPOCHS = [8, 5, 1]
+
 SEED = 42
 
 
@@ -195,8 +201,9 @@ def simulation(model,
                 input_layer_return, hidden_layer_return, output_layer_return = model(timestep_input)
                 mem_input_layer, spikes_in, I_syn_inp, spikes = input_layer_return
                 mem_hidden_layer, spikes_hid, Iw_in_hid, _, adaptive_threshold_hid = hidden_layer_return
-                mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
-                sum_out_spikes += spikes_out
+                if output_layer_return is not None:
+                    mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
+                    sum_out_spikes += spikes_out
                 
                 # to choose this it must be first min > 5
                 if sum_out_spikes.min() > min_spikes:
@@ -241,8 +248,9 @@ def simulation(model,
                 input_layer_return, hidden_layer_return, output_layer_return = model(timestep_input)
                 mem_input_layer, spikes_in, I_syn_inp, spikes = input_layer_return
                 mem_hidden_layer, spikes_hid, Iw_in_hid, _, adaptive_threshold_hid = hidden_layer_return
-                mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
-                sum_out_spikes += spikes_out
+                if output_layer_return is not None:
+                    mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
+                    sum_out_spikes += spikes_out
                 
                 delays.append((step, time.time()-step_timer))
                 
@@ -273,12 +281,12 @@ def simulation(model,
                 save_weights_grid(
                     model.hidden_layer.weights.detach().cpu().numpy(),
                     nrows=nrows, ncols=ncols,
-                    filename=f"{weights_l1_folder}/weights_{input_id}_{step}", 
+                    filename=f"{weights_l1_folder}/weights_{trajectory_id}_{step}", 
                     figsize=(12, 12)
                 )
                 save_weights_heatmap(
                     model.output_layer.weights.detach().cpu().numpy(),
-                    filename=f"{weights_l2_folder}/weights_{input_id}_{step}", 
+                    filename=f"{weights_l2_folder}/weights_{trajectory_id}_{step}", 
                     figsize=(20, 2)
                 )
                 
@@ -366,6 +374,9 @@ for fold in range(FOLDS):
 
     JSON_PATH_TRAIN = f'trajectories/splits/{EXPERIMENT}/fold_{fold}/train.jsonl'
     JSON_PATH_TEST = f'trajectories/splits/{EXPERIMENT}/fold_{fold}/val.jsonl'
+    
+    JSON_PATH_TRAIN = f'trajectories/origin/{EXPERIMENT}/train.jsonl'
+    JSON_PATH_TEST = f'trajectories/origin/{EXPERIMENT}/val.jsonl'
 
     # FOLD
 
@@ -433,7 +444,7 @@ for fold in range(FOLDS):
             
             
             match phase:
-                case 'train_p1':
+                case 'p1_train_unsupervised':
                     model.train_unsupervised()
                     folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
                     simulation(model, 
@@ -443,7 +454,28 @@ for fold in range(FOLDS):
                             trajectory_bar = trajectory_bar,
                             sample_bar = sample_bar)
                     
-                case 'train_p2':
+                case 'p1_train_unsupervised_2':
+                    model.train_unsupervised_2_phases()
+                    folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
+                    simulation(model, 
+                            train_dataloader, 
+                            folders, 
+                            save_plots = False,
+                            trajectory_bar = trajectory_bar,
+                            sample_bar = sample_bar)
+                    
+                case 'p2_tuning':
+                    model.finetune_unsupervised()
+                    folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
+                    simulation(model, 
+                            train_dataloader, 
+                            folders, 
+                            max_repeat = 10,
+                            save_plots = False,
+                            trajectory_bar = trajectory_bar,
+                            sample_bar = sample_bar)
+                    
+                case 'p3_train_reward':
                     model.train_reward()
                     folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
                     simulation(model, 
@@ -454,7 +486,7 @@ for fold in range(FOLDS):
                             trajectory_bar = trajectory_bar,
                             sample_bar = sample_bar)
                     
-                case 'test':
+                case 'p4_test':
                     model.test_reward()
                     folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
                     simulation(model, 

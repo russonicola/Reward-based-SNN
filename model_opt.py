@@ -406,7 +406,7 @@ class STDP:
 # ============================
 # R-STDP with Eligibility Trace and Delayed Reward - Inverted STDP + Reward-Modulated STDP (R-STDP)
 # ============================
-class STDP_ET:
+class STDP_ET_prev:
     def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, tau_e=1000.0,
                  A_plus=0.01, A_minus=0.005, shift=0, passive_ltd=None):
         self.lr = lr
@@ -487,6 +487,104 @@ class STDP_ET:
             }
         }
         
+ 
+# ============================
+# R-STDP with Eligibility Trace and Delayed Reward - Inverted STDP + Reward-Modulated STDP (R-STDP)
+# ============================        
+class STDP_ET:
+    def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, tau_e=1000.0,
+                 A_plus=0.01, A_minus=0.005, shift=0, passive_ltd=None, classic_stdp_only=False):
+        self.lr = lr
+        self.tau_pre1 = tau_pre1
+        self.tau_pre2 = tau_pre2
+        self.tau_post = tau_post
+        self.tau_e = tau_e
+        self.A_plus = A_plus
+        self.A_minus = A_minus
+        self.shift = shift
+        self.passive_ltd = passive_ltd
+        self.classic_stdp_only = classic_stdp_only
+        self.layer = layer
+
+        self.pre_trace1 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.pre_trace2 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.post_trace = torch.zeros(layer.output_neurons, device=layer.device)
+        self.eligibility = torch.zeros(layer.output_neurons, layer.input_neurons, device=layer.device)
+        self.pre_spike_buffer = []
+
+    def update(self, spikes_pre, spikes_post):
+        tau_pre1_safe = max(self.tau_pre1, 1e-6)
+        tau_pre2_safe = max(self.tau_pre2, 1e-6)
+        tau_post_safe = max(self.tau_post, 1e-6)
+        tau_e_safe = max(self.tau_e, 1e-6)
+
+        # Shift temporale (ritardo pre-sinaptico)
+        if self.shift > 0:
+            self.pre_spike_buffer.append(spikes_pre.clone())
+            if len(self.pre_spike_buffer) > self.shift:
+                spikes_pre = self.pre_spike_buffer.pop(0)
+            else:
+                return
+
+        # Decadimento delle tracce
+        self.pre_trace1 *= torch.exp(torch.tensor(-1.0 / tau_pre1_safe, device=self.layer.device))
+        self.pre_trace2 *= torch.exp(torch.tensor(-1.0 / tau_pre2_safe, device=self.layer.device))
+        self.post_trace *= torch.exp(torch.tensor(-1.0 / tau_post_safe, device=self.layer.device))
+        if not self.classic_stdp_only:
+            self.eligibility *= torch.exp(torch.tensor(-1.0 / tau_e_safe, device=self.layer.device))
+
+        # Aggiorna tracce
+        self.pre_trace1 += spikes_pre.mean(dim=0)
+        self.pre_trace2 += spikes_pre.mean(dim=0)
+        self.post_trace += spikes_post.mean(dim=0)
+
+        # LTD
+        if self.A_minus != 0:
+            ltd = self.A_minus * torch.outer(self.post_trace, self.pre_trace2)
+            self.layer.weights.data -= ltd
+            self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.05, 1.0)
+
+        # LTP
+        if self.A_plus != 0:
+            ltp = self.A_plus * torch.outer(spikes_post.mean(dim=0), self.pre_trace1)
+            if self.classic_stdp_only:
+                # Applica subito ltp ai pesi
+                self.layer.weights.data += self.lr * ltp
+                self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+            else:
+                # Accumula in eligibility trace
+                self.eligibility += ltp
+
+    def apply_reward(self, reward):
+        if self.classic_stdp_only:
+            return  # Nessun reward in modalità STDP classico
+
+        if isinstance(reward, (float, int)):
+            reward = torch.full((self.layer.neurons, 1), reward, device=self.layer.device)
+        elif isinstance(reward, torch.Tensor) and reward.ndim == 1:
+            reward = reward.view(-1, 1)
+
+        self.layer.weights.data += self.lr * reward * self.eligibility
+        self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+
+    def info(self):
+        return {
+            "rstdp": {
+                "lr": self.lr,
+                "tau_pre1": self.tau_pre1,
+                "tau_pre2": self.tau_pre2,
+                "tau_post": self.tau_post,
+                "tau_e": self.tau_e,
+                "A_plus": self.A_plus,
+                "A_minus": self.A_minus,
+                "shift": self.shift,
+                "passive_ltd": self.passive_ltd,
+                "classic_stdp_only": self.classic_stdp_only
+            }
+        }
+        
+        
+        
 
 # ============================
 # RewardBasedModel con gestione memoria migliorata
@@ -561,9 +659,20 @@ class RewardBasedModel(nn.Module):
         self.enable_hidden_learning = True
         self.hidden_layer.adaptive_threshold_on = True
         self.output_layer.adaptive_threshold_on = False
-        self.enable_output_layer = True # was False
+        self.enable_output_layer = False
         self.enable_output_learning = False
         self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = False
+        
+    def train_unsupervised_2_phases(self):
+        self.configuration_type = 'train_unsupervised_2_phases'
+        self.enable_hidden_learning = True
+        self.hidden_layer.adaptive_threshold_on = True
+        self.output_layer.adaptive_threshold_on = True
+        self.enable_output_layer = False
+        self.enable_output_learning = False
+        self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = True
 
     def test_unsupervised(self):
         self.configuration_type = 'test_unsupervised'
@@ -573,6 +682,17 @@ class RewardBasedModel(nn.Module):
         self.enable_output_layer = False
         self.enable_output_learning = False
         self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = False
+        
+    def finetune_unsupervised(self):
+        self.configuration_type = 'finetune_unsupervised'
+        self.enable_hidden_learning = False
+        self.hidden_layer.adaptive_threshold_on = False
+        self.output_layer.adaptive_threshold_on = False
+        self.enable_output_layer = True
+        self.enable_output_learning = False
+        self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = False
 
     def train_reward(self):
         self.configuration_type = 'train_reward'
@@ -582,6 +702,7 @@ class RewardBasedModel(nn.Module):
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
+        self.shift_stdp.classic_stdp_only = False
 
     def test_reward(self):
         self.configuration_type = 'test_reward'
@@ -591,16 +712,18 @@ class RewardBasedModel(nn.Module):
         self.enable_output_layer = True
         self.enable_output_learning = False
         self.enable_reward = True
+        self.shift_stdp.classic_stdp_only = False
     
 
     def online(self):
         self.configuration_type = 'online'
         self.hidden_layer.adaptive_threshold_on = False
         self.output_layer.adaptive_threshold_on = False
-        self.enable_hidden_learning = True
+        self.enable_hidden_learning = False
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
+        self.shift_stdp.classic_stdp_only = False
 
     def forward(self, spikes, reward=None):
         input_layer_return = None
