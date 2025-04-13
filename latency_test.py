@@ -72,7 +72,6 @@ nrows, ncols = [20, 20]
 min_spikes = 5
 
 dt = args.dt # was 4
-dt = 2
 
 
 
