@@ -54,13 +54,19 @@ args = parser.parse_args()
 
 EXPERIMENT = 'kfold_5_164' # 'split_64'
 EXPERIMENT = 'split_64'
-FOLDS = 5
-PHASES = ['p1_train_unsupervised','p2_tuning','p3_training_reward', 'p4_test']
+FOLDS = 1 # 5
+PHASES = ['p1_train_unsupervised','p2_tuning','p3_train_reward', 'p4_test']
 NUM_EPOCHS = [10, 1, 5, 1]
 
 FOLDS = 1
-PHASES = ['p1_train_unsupervised_2', 'p3_training_reward', 'p4_test']
-NUM_EPOCHS = [8, 5, 1]
+PHASES = ['p1_train_unsupervised_2', 'p3_train_reward', 'p4_test']
+PHASES = ['p1_train_unsupervised','p3_train_reward', 'p4_test']
+NUM_EPOCHS = [10, 5, 1]
+
+
+EXPERIMENT = 'single_more'
+PHASES = ['p1_train_unsupervised','p3_train_reward', 'p4_test']
+NUM_EPOCHS = [1, 1, 1]
 
 SEED = 42
 
@@ -119,6 +125,7 @@ def simulation(model,
                dataloader, 
                folders,
                max_repeat=-1, 
+               tune_out_threshold=False,
                save_weights=True, 
                t_step = 1, 
                save_weights_history_steps=0,
@@ -238,14 +245,17 @@ def simulation(model,
             # **Pausa tra campioni (spikes vuoti)**
             for pstp in range(pause_steps):
                 
+                reward_signal = None
+                
                 if reward_enabled and out_neuron_winner is not None: # delay for 50ms
+                    reward_signal = 1.0
                     reward_history.append(torch.tensor([[1.0]]))
                     reward_enabled = False
                 else:
                     reward_history.append(torch.tensor([[0.0]]))
                 
                 step_timer = time.time()
-                input_layer_return, hidden_layer_return, output_layer_return = model(timestep_input)
+                input_layer_return, hidden_layer_return, output_layer_return = model(timestep_input, reward_signal)
                 mem_input_layer, spikes_in, I_syn_inp, spikes = input_layer_return
                 mem_hidden_layer, spikes_hid, Iw_in_hid, _, adaptive_threshold_hid = hidden_layer_return
                 if output_layer_return is not None:
@@ -291,12 +301,14 @@ def simulation(model,
                 )
                 
             # Check num out spike
-            if repeat > max_repeat or (torch.all(sum_out_spikes > 0) and torch.all(sum_out_spikes < 20)):
+            if repeat >= (max_repeat-1) or (torch.all(sum_out_spikes > 0) and torch.all(sum_out_spikes < 20)):
                 input_id += 1
-            elif torch.all(sum_out_spikes == 0):
-                model.output_layer.adaptive_threshold -= 0.5
             else:
-                model.output_layer.adaptive_threshold += 0.5
+                if tune_out_threshold:
+                    if torch.all(sum_out_spikes == 0):
+                        model.output_layer.adaptive_threshold -= 0.5
+                    else:
+                        model.output_layer.adaptive_threshold += 0.5
                 
             spike_out_trajectory.append(sum_out_spikes.clone())
             
@@ -314,7 +326,6 @@ def simulation(model,
         torch.save(torch.stack(threshold_history_out), f"{monitors_folder}/threshold_history_out.mon")
         torch.save(torch.stack(out_voltage_history), f"{monitors_folder}/out_voltage_history.mon")
         torch.save(torch.stack(out_synaptic_current_history), f"{monitors_folder}/out_synaptic_current_history.mon")
-        torch.save(torch.stack(spike_out_trajectory), f"{monitors_folder}/spike_out_trajectory.mon")
         torch.save(torch.stack(reward_history), f"{monitors_folder}/reward_history.mon")
         torch.save([(x, y[0].item()) for (x, y) in trajectory_history], f"{monitors_folder}/trajectory_history.mon")
         
@@ -323,6 +334,8 @@ def simulation(model,
         
     if save_weights_history_steps:
         torch.save(torch.stack(output_weights_history), f"{monitors_folder}/output_weights_history.mon")
+        
+    torch.save(torch.stack(spike_out_trajectory), f"{monitors_folder}/spike_out_trajectory.mon")
         
     metrics = None
     
@@ -368,15 +381,18 @@ def simulation(model,
 
 for fold in range(FOLDS):
     
-    model = RewardBasedModel(hidden_neurons=n_hidden, dt=dt, device=device)
+    model = RewardBasedModel(hidden_neurons=n_hidden, lr_un=0.003, dt=dt, device=device)
     
     # Check last fold later
 
     JSON_PATH_TRAIN = f'trajectories/splits/{EXPERIMENT}/fold_{fold}/train.jsonl'
     JSON_PATH_TEST = f'trajectories/splits/{EXPERIMENT}/fold_{fold}/val.jsonl'
     
-    JSON_PATH_TRAIN = f'trajectories/origin/{EXPERIMENT}/train.jsonl'
-    JSON_PATH_TEST = f'trajectories/origin/{EXPERIMENT}/val.jsonl'
+    JSON_PATH_TRAIN = f'trajectories/origin/64_trajectories.jsonl'
+    JSON_PATH_TEST = f'trajectories/origin/100_random_test.jsonl'
+    
+    JSON_PATH_TRAIN = f'trajectories/origin/single.jsonl'
+    JSON_PATH_TEST = f'trajectories/origin/single.jsonl'
 
     # FOLD
 
@@ -451,6 +467,7 @@ for fold in range(FOLDS):
                             train_dataloader, 
                             folders, 
                             save_plots = False,
+                            max_repeat = 30,
                             trajectory_bar = trajectory_bar,
                             sample_bar = sample_bar)
                     

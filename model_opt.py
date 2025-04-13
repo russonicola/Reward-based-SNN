@@ -341,7 +341,7 @@ class OutputLayer(nn.Module):
 # ============================
 # STDP Rule with Two Pre-Synaptic Traces, A_plus / A_minus, and Spike Shift
 # ============================
-class STDP:
+class STDP_prev:
     def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, A_plus=0.01, A_minus=-0.005, shift=0):
         self.lr = lr
         self.tau_pre1 = tau_pre1  # Traccia a breve termine
@@ -398,6 +398,85 @@ class STDP:
                     "A_plus": self.A_plus,
                     "A_minus": self.A_minus
                 }
+        }
+        
+        
+# ============================
+# STDP with Two Pre-Synaptic Traces + Optional Passive LTD for WTA
+# ============================
+class STDP:
+    def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0,
+                 A_plus=0.01, A_minus=-0.005, shift=0, A_passive=0.02, use_passive_ltd=True):
+        self.lr = lr
+        self.tau_pre1 = tau_pre1  # Short-term pre-trace
+        self.tau_pre2 = tau_pre2  # Long-term pre-trace
+        self.tau_post = tau_post
+        self.A_plus = A_plus  # Potentiation
+        self.A_minus = A_minus  # Depression
+        self.A_passive = A_passive  # Passive LTD for inactive pre
+        self.shift = shift
+        self.use_passive_ltd = use_passive_ltd
+        self.layer = layer
+
+        # Traces
+        self.pre_trace1 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.pre_trace2 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.post_trace = torch.zeros(layer.output_neurons, device=layer.device)
+
+        # Spike buffer for pre shift
+        self.pre_spike_buffer = []
+
+    def update(self, spikes_pre, spikes_post):
+        tau_pre1_safe = max(self.tau_pre1, 1e-6)
+        tau_pre2_safe = max(self.tau_pre2, 1e-6)
+        tau_post_safe = max(self.tau_post, 1e-6)
+
+        # Apply temporal shift if needed
+        if self.shift > 0:
+            self.pre_spike_buffer.append(spikes_pre.clone())
+            if len(self.pre_spike_buffer) > self.shift:
+                spikes_pre = self.pre_spike_buffer.pop(0)
+            else:
+                return  # wait for buffer
+
+        # Mean over batch
+        spikes_pre_mean = spikes_pre.mean(dim=0)
+        spikes_post_mean = spikes_post.mean(dim=0)
+
+        # Update traces
+        self.pre_trace1 = self.pre_trace1 * torch.exp(torch.tensor(-1.0 / tau_pre1_safe, device=self.layer.device)) + spikes_pre_mean
+        self.pre_trace2 = self.pre_trace2 * torch.exp(torch.tensor(-1.0 / tau_pre2_safe, device=self.layer.device)) + spikes_pre_mean
+        self.post_trace = self.post_trace * torch.exp(torch.tensor(-1.0 / tau_post_safe, device=self.layer.device)) + spikes_post_mean
+
+        # STDP weight update
+        ltp = self.A_plus * torch.outer(spikes_post_mean, self.pre_trace1)
+        ltd = self.A_minus * torch.outer(self.post_trace, self.pre_trace2)
+        dW = self.lr * (ltp - ltd)
+
+        # Optional: WTA-style passive LTD
+        if self.use_passive_ltd and self.A_passive != 0:
+            inactive_pre = 1.0 - spikes_pre_mean  # shape: [input]
+            active_post = spikes_post_mean        # shape: [output]
+            passive_ltd = torch.outer(active_post, inactive_pre)
+            dW -= self.lr * self.A_passive * passive_ltd
+
+        # Update weights
+        self.layer.weights.data += dW
+        self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+
+    def info(self):
+        return {
+            "stdp": {
+                "lr": self.lr,
+                "tau_pre1": self.tau_pre1,
+                "tau_pre2": self.tau_pre2,
+                "tau_post": self.tau_post,
+                "A_plus": self.A_plus,
+                "A_minus": self.A_minus,
+                "A_passive": self.A_passive,
+                "use_passive_ltd": self.use_passive_ltd,
+                "shift": self.shift
+            }
         }
         
         
@@ -596,6 +675,7 @@ class RewardBasedModel(nn.Module):
                  hidden_neurons=400, 
                  output_neurons=5, 
                  reward_neurons=1, 
+                 lr_un=0.01, # was 0.001
                  dt=1.0,
                  device=None):
         super().__init__()
@@ -619,14 +699,15 @@ class RewardBasedModel(nn.Module):
                                         inhibition=True, 
                                         inhibition_strength=0.8,
                                         refractory_period=5,
+                                        random_weights_range=[0.3, 0.5], # [0.3, 0.5]
                                         device=device).to(device)
 
         self.output_layer = OutputLayer(hidden_neurons,
                                         output_neurons,
                                         reward_neurons,
-                                        0.7 ** dt,
+                                        0.5 ** dt, # 0.7
                                         threshold_out=0.5,
-                                        threshold_min=0.5, 
+                                        threshold_min=0.1, 
                                         threshold_max=20.0,
                                         threshold_inc=0.001, 
                                         threshold_dec=0,
@@ -634,19 +715,28 @@ class RewardBasedModel(nn.Module):
                                         reward_strength=1.0,
                                         inhibition=True, 
                                         inhibition_strength=1.5,
-                                        refractory_period_out=5,
-                                        random_weights_range=[0.3, 0.5],
+                                        refractory_period_out=5, # 5
+                                        random_weights_range=[0.3, 0.5], # [0.3, 0.5]
                                         device=device).to(device)
 
         self.stdp = STDP(self.hidden_layer,
-                         lr=0.001,
+                         lr=lr_un,
                          tau_pre1=5.0,
                          tau_pre2=40.0,
                          tau_post=5.0,
                          A_plus=0.01,
                          A_minus=-0.005)
 
-        self.shift_stdp = STDP_ET(self.output_layer)
+        self.shift_stdp = STDP_ET(self.output_layer,
+                                  lr=0.1,
+                                  tau_pre1=10.0,
+                                  tau_pre2=100.0,
+                                  tau_post=10.0, 
+                                  A_plus=0.2,
+                                  A_minus=0.00001,
+                                  passive_ltd=None,
+                                  tau_e=1000.0
+                                )
 
         self.configuration_type = None
         self.enable_hidden_learning = True
@@ -656,10 +746,10 @@ class RewardBasedModel(nn.Module):
 
     def train_unsupervised(self):
         self.configuration_type = 'train_unsupervised'
-        self.enable_hidden_learning = True
+        self.enable_hidden_learning = False, # True
         self.hidden_layer.adaptive_threshold_on = True
         self.output_layer.adaptive_threshold_on = False
-        self.enable_output_layer = False
+        self.enable_output_layer = True # False
         self.enable_output_learning = False
         self.enable_reward = False
         self.shift_stdp.classic_stdp_only = False
