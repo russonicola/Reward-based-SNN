@@ -119,7 +119,7 @@ writer_thread.start()
 # ---------------------------------------------------------
 
 dt = 1
-total_steps = 60000
+total_steps = int(60000 / dt)
 
 model = RewardBasedModel(hidden_neurons=n_hidden, lr_un=0.003, dt=dt, device=device)
 model.train_reward()
