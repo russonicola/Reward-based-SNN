@@ -72,6 +72,7 @@ nrows, ncols = [20, 20]
 min_spikes = 5
 
 dt = args.dt # was 4
+dt = 2
 
 
 
@@ -118,8 +119,8 @@ writer_thread.start()
 # ---------------------------------------------------------
 # ---------------------------------------------------------
 
-dt = 1
-total_steps = int(60000 / dt)
+warmup_steps = int(20000/dt)
+total_steps = int(80000 / dt)
 
 model = RewardBasedModel(hidden_neurons=n_hidden, lr_un=0.003, dt=dt, device=device)
 model.train_reward()
@@ -156,7 +157,11 @@ for t in range(total_steps):
         mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
         sum_out_spikes += spikes_out
 
-    queue.put((t, time.time()-step_timer))
+    if t < warmup_steps:
+        continue
+    
+    delay = (time.time()-step_timer)/dt
+    queue.put(((t-warmup_steps)*dt, delay))
     
     
 queue.put("STOP")
