@@ -1,13 +1,13 @@
-import os, shutil
+import os
 import argparse
 import time
 import torch
-from datetime import datetime
 from tqdm import tqdm
-from prepare_data import prepare, get_last_valid_checkpoint
-#from snn_layer import COBALayer, RewardLayer, STDP, STDP_ET, ShiftSTDP
 from model_opt import RewardBasedModel
-from plt_functions import save_weights_grid, save_weights_heatmap, save_delays, save_spikes
+from plt_functions import save_delays
+
+from queue import Queue
+from threading import Thread
 
 
 def set_checkpoint_dir(workdir, epoch):
@@ -75,14 +75,6 @@ dt = args.dt # was 4
 
 
 
-
-
-# Definizione della pausa (in ms) tra i campioni
-pause_steps = int(2000 / dt)  # 2000 ms di pausa
-
-
-
-
 # ---------------------------------------------------------
 # ---------------------------------------------------------
 # -------------------- INITIALISATION ---------------------
@@ -102,6 +94,24 @@ os.makedirs(workdir_exp, exist_ok=True)
 
 
 
+delays = []
+queue = Queue()
+
+def writer(q, target_list):
+    while True:
+        item = q.get()
+        if item == "STOP":
+            break
+        target_list.append(item)
+
+writer_thread = Thread(target=writer, args=(queue, delays))
+writer_thread.start()
+
+
+
+
+
+
 # ---------------------------------------------------------
 # ---------------------------------------------------------
 # ----------------------- SIMULATION ----------------------
@@ -114,14 +124,9 @@ total_steps = 60000
 model = RewardBasedModel(hidden_neurons=n_hidden, lr_un=0.003, dt=dt, device=device)
 model.train_reward()
 
-sample_bar = tqdm(desc="Step", position=0, leave=False)           
-sample_bar.total = total_steps
-sample_bar.refresh()
-sample_bar.reset()
 
 sum_out_spikes = torch.zeros((batch_size, n_output), device=device)
 
-delays = []
 # **Itera sulla sequenza temporale originale**
 # convert to while or for until 1 min - 60000
 for t in range(total_steps):  
@@ -151,10 +156,11 @@ for t in range(total_steps):
         mem_output_layer, spikes_out, _, Iw_in_out, adaptive_threshold_out = output_layer_return
         sum_out_spikes += spikes_out
 
-    delays.append((t, time.time()-step_timer))
+    queue.put((t, time.time()-step_timer))
     
-    sample_bar.update(1)  # Aumenta di 1 per ogni campione completato
     
+queue.put("STOP")
+writer_thread.join()
 
 save_delays(delays, f"{workdir_exp}/delays", dt, figsize=(12, 12))
 
