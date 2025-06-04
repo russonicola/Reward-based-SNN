@@ -1,0 +1,40 @@
+{
+    "device":"Laptop",
+    "input_neurons": 64,
+    "hidden_neurons": 64,
+    "output_neurons": 5,
+    "reward_neurons": 1,
+    "in_to_out_mapping": 16,
+    "excluded_side_pixels": 0,
+    "monitor_on": false,
+    "sim_ranges": [1, 100, 1],
+    "sleep_on": false,
+    "sync_sim_on": true,
+
+    "reading_interval": 1000,
+    "batch_size":1,
+    "resolution": [128,128],
+    "downscaling": [8,8],
+    "rows": [0,1,2,3,4,5,6,7],
+    "positions_mapping": [18, 18, 18, 20, 18, 18, 18],
+    "save_stream": true,
+
+    "vmcu_mode_httm": false,
+    "control_mode_record": false,
+
+    "ball_delay": 0.5,
+    "servo_delay": 0.1,
+
+    "time_step": 0.5,
+    "network_operation_time_step": 0.5,
+    "sim_interval": 50,
+    "Eexc_in": 0,
+    "Erest_in": -60,
+    "taue": 20,
+    "taum": 40,
+    "vthreshold": -50,
+    "vreset": -60,
+    "refractory": 10,
+    "gmax": 10.0,
+    "syn_ge_inc": 1.0
+}

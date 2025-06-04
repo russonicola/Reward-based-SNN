@@ -6,7 +6,7 @@ from datetime import datetime
 from tqdm import tqdm
 from prepare_data import prepare, get_last_valid_checkpoint
 #from snn_layer import COBALayer, RewardLayer, STDP, STDP_ET, ShiftSTDP
-from model_opt import RewardBasedModel
+from src.model.model import RewardBasedModel
 from plt_functions import save_weights_grid, save_weights_heatmap, save_delays, save_spikes
 
 
@@ -58,15 +58,19 @@ FOLDS = 1 # 5
 PHASES = ['p1_train_unsupervised','p2_tuning','p3_train_reward', 'p4_test']
 NUM_EPOCHS = [10, 1, 5, 1]
 
+#EXPERIMENT = 'single'
+PHASES = ['p1_train_unsupervised','p3_train_reward', 'p4_test']
+NUM_EPOCHS = [1, 1, 1]
+
 FOLDS = 1
 PHASES = ['p1_train_unsupervised_2', 'p3_train_reward', 'p4_test']
 PHASES = ['p1_train_unsupervised','p3_train_reward', 'p4_test']
-NUM_EPOCHS = [10, 5, 1]
+NUM_EPOCHS = [15, 20, 1]
+
+#PHASES = ['p1_train_unsupervised_3', 'p4_test']
+#NUM_EPOCHS = [15, 1]
 
 
-EXPERIMENT = 'single_more'
-PHASES = ['p1_train_unsupervised','p3_train_reward', 'p4_test']
-NUM_EPOCHS = [1, 1, 1]
 
 SEED = 42
 
@@ -391,8 +395,8 @@ for fold in range(FOLDS):
     JSON_PATH_TRAIN = f'trajectories/origin/64_trajectories.jsonl'
     JSON_PATH_TEST = f'trajectories/origin/100_random_test.jsonl'
     
-    JSON_PATH_TRAIN = f'trajectories/origin/single.jsonl'
-    JSON_PATH_TEST = f'trajectories/origin/single.jsonl'
+    #JSON_PATH_TRAIN = f'trajectories/origin/single.jsonl'
+    #JSON_PATH_TEST = f'trajectories/origin/single.jsonl'
 
     # FOLD
 
@@ -467,12 +471,22 @@ for fold in range(FOLDS):
                             train_dataloader, 
                             folders, 
                             save_plots = False,
-                            max_repeat = 30,
+                            #max_repeat = 30,
                             trajectory_bar = trajectory_bar,
                             sample_bar = sample_bar)
                     
                 case 'p1_train_unsupervised_2':
                     model.train_unsupervised_2_phases()
+                    folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
+                    simulation(model, 
+                            train_dataloader, 
+                            folders, 
+                            save_plots = False,
+                            trajectory_bar = trajectory_bar,
+                            sample_bar = sample_bar)
+                    
+                case 'p1_train_unsupervised_3':
+                    model.train_unsupervised_3_phases()
                     folders = (checkpoints_folder, monitors_folder, weights_l1_folder, weights_l2_folder)
                     simulation(model, 
                             train_dataloader, 

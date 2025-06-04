@@ -5,7 +5,7 @@ from datetime import datetime
 from tqdm import tqdm
 from prepare_data import prepare, get_last_valid_checkpoint
 #from snn_layer import COBALayer, RewardLayer, STDP, STDP_ET, ShiftSTDP
-from model_opt import RewardBasedModel
+from src.model.model import RewardBasedModel
 from plt_functions import save_weights_grid, save_weights_heatmap, save_delays, save_spikes
 
 device = "cpu"

@@ -143,9 +143,10 @@ class HiddenLayer(nn.Module):
 
         # Output neurons
         self.lif_out = snn.Leaky(beta=beta, threshold=threshold_out, reset_mechanism=reset_out, inhibition=inhibition).to(self.device)
-
+        
         # Adaptive threshold
         self.adaptive_threshold = threshold_out * torch.ones(output_neurons, device=self.device)
+        self.register_buffer('lif_threshold_buffer', self.adaptive_threshold.clone().detach())
 
         # Inhibition strength
         self.inhibition_strength = inhibition_strength 
@@ -156,7 +157,9 @@ class HiddenLayer(nn.Module):
         Iw_in = torch.matmul(spikes, self.weights.T)
         
         # **Aggiorna dinamicamente la soglia di Leaky**
-        self.lif_out.register_buffer('threshold', self.adaptive_threshold.clone().detach())
+        #self.lif_out.register_buffer('threshold', self.adaptive_threshold.clone().detach())
+        self.lif_threshold_buffer.copy_(self.adaptive_threshold)
+        self.lif_out.threshold = self.lif_threshold_buffer
 
         # Output Layer
         spk_out, mem_out = self.lif_out(Iw_in)
@@ -338,7 +341,7 @@ class OutputLayer(nn.Module):
 # ============================
 # STDP Rule with Two Pre-Synaptic Traces, A_plus / A_minus, and Spike Shift
 # ============================
-class STDP:
+class STDP_prev:
     def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, A_plus=0.01, A_minus=-0.005, shift=0):
         self.lr = lr
         self.tau_pre1 = tau_pre1  # Traccia a breve termine
@@ -398,12 +401,91 @@ class STDP:
         }
         
         
+# ============================
+# STDP with Two Pre-Synaptic Traces + Optional Passive LTD for WTA
+# ============================
+class STDP:
+    def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0,
+                 A_plus=0.01, A_minus=-0.005, shift=0, A_passive=0.02, use_passive_ltd=True):
+        self.lr = lr
+        self.tau_pre1 = tau_pre1  # Short-term pre-trace
+        self.tau_pre2 = tau_pre2  # Long-term pre-trace
+        self.tau_post = tau_post
+        self.A_plus = A_plus  # Potentiation
+        self.A_minus = A_minus  # Depression
+        self.A_passive = A_passive  # Passive LTD for inactive pre
+        self.shift = shift
+        self.use_passive_ltd = use_passive_ltd
+        self.layer = layer
+
+        # Traces
+        self.pre_trace1 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.pre_trace2 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.post_trace = torch.zeros(layer.output_neurons, device=layer.device)
+
+        # Spike buffer for pre shift
+        self.pre_spike_buffer = []
+
+    def update(self, spikes_pre, spikes_post):
+        tau_pre1_safe = max(self.tau_pre1, 1e-6)
+        tau_pre2_safe = max(self.tau_pre2, 1e-6)
+        tau_post_safe = max(self.tau_post, 1e-6)
+
+        # Apply temporal shift if needed
+        if self.shift > 0:
+            self.pre_spike_buffer.append(spikes_pre.clone())
+            if len(self.pre_spike_buffer) > self.shift:
+                spikes_pre = self.pre_spike_buffer.pop(0)
+            else:
+                return  # wait for buffer
+
+        # Mean over batch
+        spikes_pre_mean = spikes_pre.mean(dim=0)
+        spikes_post_mean = spikes_post.mean(dim=0)
+
+        # Update traces
+        self.pre_trace1 = self.pre_trace1 * torch.exp(torch.tensor(-1.0 / tau_pre1_safe, device=self.layer.device)) + spikes_pre_mean
+        self.pre_trace2 = self.pre_trace2 * torch.exp(torch.tensor(-1.0 / tau_pre2_safe, device=self.layer.device)) + spikes_pre_mean
+        self.post_trace = self.post_trace * torch.exp(torch.tensor(-1.0 / tau_post_safe, device=self.layer.device)) + spikes_post_mean
+
+        # STDP weight update
+        ltp = self.A_plus * torch.outer(spikes_post_mean, self.pre_trace1)
+        ltd = self.A_minus * torch.outer(self.post_trace, self.pre_trace2)
+        dW = self.lr * (ltp - ltd)
+
+        # Optional: WTA-style passive LTD
+        if self.use_passive_ltd and self.A_passive != 0:
+            inactive_pre = 1.0 - spikes_pre_mean  # shape: [input]
+            active_post = spikes_post_mean        # shape: [output]
+            passive_ltd = torch.outer(active_post, inactive_pre)
+            dW -= self.lr * self.A_passive * passive_ltd
+
+        # Update weights
+        self.layer.weights.data += dW
+        self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+
+    def info(self):
+        return {
+            "stdp": {
+                "lr": self.lr,
+                "tau_pre1": self.tau_pre1,
+                "tau_pre2": self.tau_pre2,
+                "tau_post": self.tau_post,
+                "A_plus": self.A_plus,
+                "A_minus": self.A_minus,
+                "A_passive": self.A_passive,
+                "use_passive_ltd": self.use_passive_ltd,
+                "shift": self.shift
+            }
+        }
+        
+        
         
         
 # ============================
 # R-STDP with Eligibility Trace and Delayed Reward - Inverted STDP + Reward-Modulated STDP (R-STDP)
 # ============================
-class STDP_ET:
+class STDP_ET_prev:
     def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, tau_e=1000.0,
                  A_plus=0.01, A_minus=0.005, shift=0, passive_ltd=None):
         self.lr = lr
@@ -484,48 +566,148 @@ class STDP_ET:
             }
         }
         
+ 
+# ============================
+# R-STDP with Eligibility Trace and Delayed Reward - Inverted STDP + Reward-Modulated STDP (R-STDP)
+# ============================        
+class STDP_ET:
+    def __init__(self, layer, lr=0.01, tau_pre1=5.0, tau_pre2=100.0, tau_post=5.0, tau_e=1000.0,
+                 A_plus=0.01, A_minus=0.005, shift=0, passive_ltd=None, classic_stdp_only=False):
+        self.lr = lr
+        self.tau_pre1 = tau_pre1
+        self.tau_pre2 = tau_pre2
+        self.tau_post = tau_post
+        self.tau_e = tau_e
+        self.A_plus = A_plus
+        self.A_minus = A_minus
+        self.shift = shift
+        self.passive_ltd = passive_ltd
+        self.classic_stdp_only = classic_stdp_only
+        self.layer = layer
+
+        self.pre_trace1 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.pre_trace2 = torch.zeros(layer.input_neurons, device=layer.device)
+        self.post_trace = torch.zeros(layer.output_neurons, device=layer.device)
+        self.eligibility = torch.zeros(layer.output_neurons, layer.input_neurons, device=layer.device)
+        self.pre_spike_buffer = []
+
+    def update(self, spikes_pre, spikes_post):
+        tau_pre1_safe = max(self.tau_pre1, 1e-6)
+        tau_pre2_safe = max(self.tau_pre2, 1e-6)
+        tau_post_safe = max(self.tau_post, 1e-6)
+        tau_e_safe = max(self.tau_e, 1e-6)
+
+        # Shift temporale (ritardo pre-sinaptico)
+        if self.shift > 0:
+            self.pre_spike_buffer.append(spikes_pre.clone())
+            if len(self.pre_spike_buffer) > self.shift:
+                spikes_pre = self.pre_spike_buffer.pop(0)
+            else:
+                return
+
+        # Decadimento delle tracce
+        self.pre_trace1 *= torch.exp(torch.tensor(-1.0 / tau_pre1_safe, device=self.layer.device))
+        self.pre_trace2 *= torch.exp(torch.tensor(-1.0 / tau_pre2_safe, device=self.layer.device))
+        self.post_trace *= torch.exp(torch.tensor(-1.0 / tau_post_safe, device=self.layer.device))
+        if not self.classic_stdp_only:
+            self.eligibility *= torch.exp(torch.tensor(-1.0 / tau_e_safe, device=self.layer.device))
+
+        # Aggiorna tracce
+        self.pre_trace1 += spikes_pre.mean(dim=0)
+        self.pre_trace2 += spikes_pre.mean(dim=0)
+        self.post_trace += spikes_post.mean(dim=0)
+
+        # LTD
+        if self.A_minus != 0:
+            ltd = self.A_minus * torch.outer(self.post_trace, self.pre_trace2)
+            self.layer.weights.data -= ltd
+            self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.05, 1.0)
+
+        # LTP
+        if self.A_plus != 0:
+            ltp = self.A_plus * torch.outer(spikes_post.mean(dim=0), self.pre_trace1)
+            if self.classic_stdp_only:
+                # Applica subito ltp ai pesi
+                self.layer.weights.data += self.lr * ltp
+                self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+            else:
+                # Accumula in eligibility trace
+                self.eligibility += ltp
+
+    def apply_reward(self, reward):
+        if self.classic_stdp_only:
+            return  # Nessun reward in modalità STDP classico
+
+        if isinstance(reward, (float, int)):
+            reward = torch.full((self.layer.output_neurons, 1), reward, device=self.layer.device)
+        elif isinstance(reward, torch.Tensor) and reward.ndim == 1:
+            reward = reward.view(-1, 1)
+
+        self.layer.weights.data += self.lr * reward * self.eligibility
+        self.layer.weights.data = torch.clamp(self.layer.weights.data, 0.0, 1.0)
+
+    def info(self):
+        return {
+            "rstdp": {
+                "lr": self.lr,
+                "tau_pre1": self.tau_pre1,
+                "tau_pre2": self.tau_pre2,
+                "tau_post": self.tau_post,
+                "tau_e": self.tau_e,
+                "A_plus": self.A_plus,
+                "A_minus": self.A_minus,
+                "shift": self.shift,
+                "passive_ltd": self.passive_ltd,
+                "classic_stdp_only": self.classic_stdp_only
+            }
+        }
+        
+        
+        
+
+# ============================
+# RewardBasedModel con gestione memoria migliorata
+# ============================
 
 class RewardBasedModel(nn.Module):
-    
     def __init__(self, 
                  input_neurons=64, 
                  hidden_neurons=400, 
                  output_neurons=5, 
                  reward_neurons=1, 
+                 lr_un=0.01, # was 0.001
                  dt=1.0,
                  device=None):
         super().__init__()
-        
-        # set device if not set from external
+
         self.device = torch.device("mps" if torch.backends.mps.is_available() else 
                             "cuda" if torch.cuda.is_available() else 
                             "cpu") if device is None else device
-        
-    
+
         self.input_layer = InputLayer(input_neurons,
-                                    0.99 ** dt, 
-                                    0.85 ** dt, 
-                                    0.5 ** dt,
-                                    refractory_period_in=15,
-                                    device=device).to(device)
-        
+                                      0.99 ** dt, 
+                                      0.85 ** dt, 
+                                      0.5 ** dt,
+                                      refractory_period_in=15,
+                                      device=device).to(device)
+
         self.hidden_layer = HiddenLayer(input_neurons,
-                                    hidden_neurons,
-                                    0.8 ** dt,
-                                    threshold_max = 20,
-                                    adaptive_threshold_on=True,
-                                    inhibition=True, 
-                                    inhibition_strength=0.8,
-                                    refractory_period=5,
-                                    device=device).to(device)
-        
-        
+                                        hidden_neurons,
+                                        0.8 ** dt,
+                                        threshold_max = 20,
+                                        adaptive_threshold_on=True,
+                                        inhibition=True, 
+                                        inhibition_strength=0.8,
+                                        refractory_period=5,
+                                        random_weights_range=[0.3, 0.5], # [0.3, 0.5]
+                                        device=device).to(device)
+
         self.output_layer = OutputLayer(hidden_neurons,
                                         output_neurons,
                                         reward_neurons,
-                                        0.7 ** dt,
+                                        0.5 ** dt, # 0.7
                                         threshold_out=0.5,
-                                        threshold_min=0.5, 
+                                        threshold_min=0.1, 
                                         threshold_max=20.0,
                                         threshold_inc=0.001, 
                                         threshold_dec=0,
@@ -533,116 +715,151 @@ class RewardBasedModel(nn.Module):
                                         reward_strength=1.0,
                                         inhibition=True, 
                                         inhibition_strength=1.5,
-                                        refractory_period_out=5,
-                                        random_weights_range=[0.3, 0.5],
+                                        refractory_period_out=5, # 5
+                                        random_weights_range=[0.3, 0.5], # [0.3, 0.5]
                                         device=device).to(device)
-        
-        
+
         self.stdp = STDP(self.hidden_layer,
-                        lr=0.001,
-                        tau_pre1=5.0,
-                        tau_pre2=40.0,
-                        tau_post=5.0,
-                        A_plus=0.01,
-                        A_minus=-0.005)
-        
-        self.shift_stdp = STDP_ET(self.output_layer)
-        
+                         lr=lr_un,
+                         tau_pre1=5.0,
+                         tau_pre2=40.0,
+                         tau_post=5.0,
+                         A_plus=0.01,
+                         A_minus=-0.005)
+
+        self.shift_stdp = STDP_ET(self.output_layer,
+                                  lr=0.1,
+                                  tau_pre1=10.0,
+                                  tau_pre2=100.0,
+                                  tau_post=10.0, 
+                                  A_plus=0.2,
+                                  A_minus=0.00001,
+                                  passive_ltd=None,
+                                  tau_e=1000.0
+                                )
+
         self.configuration_type = None
         self.enable_hidden_learning = True
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
-        
-        
+
     def train_unsupervised(self):
         self.configuration_type = 'train_unsupervised'
-        
         self.enable_hidden_learning = True
         self.hidden_layer.adaptive_threshold_on = True
+        self.output_layer.adaptive_threshold_on = False
+        self.enable_output_layer = True
+        self.enable_output_learning = False
+        self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = False
         
+    def train_unsupervised_2_phases(self):
+        self.configuration_type = 'train_unsupervised_2_phases'
+        self.enable_hidden_learning = True
+        self.hidden_layer.adaptive_threshold_on = True
+        self.output_layer.adaptive_threshold_on = True
         self.enable_output_layer = False
         self.enable_output_learning = False
         self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = True
         
+    def train_unsupervised_3_phases(self):
+        self.configuration_type = 'train_unsupervised_3'
+        self.enable_hidden_learning = True
+        self.hidden_layer.adaptive_threshold_on = True
+        self.output_layer.adaptive_threshold_on = True
+        self.enable_output_layer = True
+        self.enable_output_learning = True
+        self.enable_reward = True
+        self.shift_stdp.classic_stdp_only = True
+
     def test_unsupervised(self):
         self.configuration_type = 'test_unsupervised'
-        
         self.enable_hidden_learning = False
         self.hidden_layer.adaptive_threshold_on = False
-        
+        self.output_layer.adaptive_threshold_on = False
         self.enable_output_layer = False
         self.enable_output_learning = False
         self.enable_reward = False
-    
+        self.shift_stdp.classic_stdp_only = False
+        
+    def finetune_unsupervised(self):
+        self.configuration_type = 'finetune_unsupervised'
+        self.enable_hidden_learning = False
+        self.hidden_layer.adaptive_threshold_on = False
+        self.output_layer.adaptive_threshold_on = False
+        self.enable_output_layer = True
+        self.enable_output_learning = False
+        self.enable_reward = False
+        self.shift_stdp.classic_stdp_only = False
+
     def train_reward(self):
         self.configuration_type = 'train_reward'
         self.hidden_layer.adaptive_threshold_on = False
-        self.output_layer.adaptive_threshold_on = True
-        
+        self.output_layer.adaptive_threshold_on = False
         self.enable_hidden_learning = False
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
-        
+        self.shift_stdp.classic_stdp_only = False
+
     def test_reward(self):
         self.configuration_type = 'test_reward'
         self.hidden_layer.adaptive_threshold_on = False
         self.output_layer.adaptive_threshold_on = False
-        
         self.enable_hidden_learning = False
-        self.enable_output_layer = False
-        self.enable_output_learning = False
-        self.enable_reward = False
-        
-    def full_training(self):
-        self.configuration_type = 'full_training'
-        self.hidden_layer.adaptive_threshold_on = True
-        self.output_layer.adaptive_threshold_on = True
-        
-        self.enable_hidden_learning = True
         self.enable_output_layer = True
-        self.enable_output_learning = True
+        self.enable_output_learning = False
         self.enable_reward = True
-        
-        
+        self.shift_stdp.classic_stdp_only = False
+    
+
     def online(self):
         self.configuration_type = 'online'
         self.hidden_layer.adaptive_threshold_on = False
         self.output_layer.adaptive_threshold_on = False
-        
-        self.enable_hidden_learning = True
+        self.enable_hidden_learning = False
         self.enable_output_layer = True
         self.enable_output_learning = True
         self.enable_reward = True
-    
-    
+        self.shift_stdp.classic_stdp_only = False
+
     def forward(self, spikes, reward=None):
         input_layer_return = None
         hidden_layer_return = None
         output_layer_return = None
-        
-        input_layer_return = self.input_layer(spikes)
-        spikes_input = input_layer_return[1]
-        
-        hidden_layer_return = self.hidden_layer(spikes_input)
-        spikes_hidden = hidden_layer_return[1]
-        
+
+        with torch.no_grad():
+            
+            if spikes.shape[0] > 1:
+                spikes = spikes.sum(dim=0, keepdim=True)
+            
+            input_layer_return = self.input_layer(spikes)
+            spikes_input = input_layer_return[1].detach()
+
+            hidden_layer_return = self.hidden_layer(spikes_input)
+            spikes_hidden = hidden_layer_return[1].detach()
+
         if self.enable_hidden_learning:
             self.stdp.update(spikes_input, spikes_hidden)
-            
+
         if self.enable_output_layer:
-            output_layer_return = self.output_layer(spikes_hidden)
-            spikes_output = output_layer_return[1]
-            
+            with torch.no_grad():
+                output_layer_return = self.output_layer(spikes_hidden)
+                spikes_output = output_layer_return[1].detach()
+
             if self.enable_output_learning:
                 self.shift_stdp.update(spikes_hidden, spikes_output)
 
                 if self.enable_reward and reward is not None:
                     self.shift_stdp.apply_reward(reward)
-                    
-        
+
         return input_layer_return, hidden_layer_return, output_layer_return
+
+
+
+
         
         
         

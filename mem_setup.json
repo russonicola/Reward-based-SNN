@@ -1,0 +1,32 @@
+{
+    "shm_record":
+    {
+        "size": [1, 5],
+        "dtype": "int16",
+        "role": "shared"
+    },
+    "shm_input":
+    {
+        "size": [1, 64],
+        "dtype": "int8",
+        "role": "shared"
+    },
+    "shm_output":
+    {
+        "size": [1, 5],
+        "dtype": "int8",
+        "role": "shared"
+    },
+    "shm_reward":
+    {
+        "size": [1, 2],
+        "dtype": "int8",
+        "role": "shared"
+    },
+    "shm_servo":
+    {
+        "size": [1, 2],
+        "dtype": "int8",
+        "role": "shared"
+    }
+}

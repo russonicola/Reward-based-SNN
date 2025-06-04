@@ -178,3 +178,5 @@ trajectories
 __MACOSX
 out
 exp
+tests
+scripts
